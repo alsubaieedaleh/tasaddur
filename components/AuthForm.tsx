@@ -41,7 +41,11 @@ export default function AuthForm({ mode, next, labels }: Props) {
         />
         {mode === "signup" && <div className="hint">{labels.hint}</div>}
       </div>
-      {state.error && <div className="error" role="alert">{state.error}</div>}
+      {state.error && (
+        <div className="error" role="alert">
+          {state.error}
+        </div>
+      )}
       <Submit label={labels.submit} />
     </form>
   );

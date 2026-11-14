@@ -1,18 +1,25 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useId } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { startAudit, type FormState } from "@/app/actions";
 
-interface Props {
+export interface AuditFormLabels {
+  label: string;
   placeholder: string;
   cta: string;
   pending: string;
-  signupLabel: string;
-  upgradeLabel: string;
+  signup: string;
+  upgrade: string;
+  changeDomain: string;
+}
+
+interface Props {
+  labels: AuditFormLabels;
   defaultValue?: string;
-  compact?: boolean;
+  /** Hide the visible label (still announced to screen readers). */
+  hideLabel?: boolean;
 }
 
 function Submit({ cta, pending }: { cta: string; pending: string }) {
@@ -24,29 +31,55 @@ function Submit({ cta, pending }: { cta: string; pending: string }) {
   );
 }
 
-export default function AuditForm(p: Props) {
+export default function AuditForm({ labels, defaultValue, hideLabel }: Props) {
   const [state, action] = useActionState<FormState, FormData>(startAudit, {});
+  const id = useId();
+  const next = state.domain ? `/dashboard?rerun=${encodeURIComponent(state.domain)}` : "/dashboard";
   return (
     <div>
       <form action={action} className="audit-form">
-        <input
-          type="text"
-          name="domain"
-          inputMode="url"
-          autoComplete="url"
-          required
-          dir="ltr"
-          aria-label={p.placeholder}
-          placeholder={p.placeholder}
-          defaultValue={p.defaultValue}
-        />
-        <Submit cta={p.cta} pending={p.pending} />
+        <label htmlFor={id} className={hideLabel ? "sr-only" : "field-label"}>
+          {labels.label}
+        </label>
+        <div className="audit-row">
+          <input
+            id={id}
+            type="text"
+            name="domain"
+            inputMode="url"
+            autoComplete="url"
+            autoCapitalize="none"
+            spellCheck={false}
+            required
+            dir="ltr"
+            placeholder={labels.placeholder}
+            defaultValue={state.domain ?? defaultValue}
+          />
+          <Submit cta={labels.cta} pending={labels.pending} />
+        </div>
       </form>
       {state.error && (
-        <div className="error" role="alert" style={{ maxWidth: 620, margin: "12px auto 0" }}>
-          {state.error}{" "}
-          {state.signup && <Link href="/signup">{p.signupLabel}</Link>}
-          {state.upgrade && <Link href="/pricing">{p.upgradeLabel}</Link>}
+        <div className="error form-error" role="alert">
+          <p>{state.error}</p>
+          {(state.signup || state.upgrade || state.changeDomain) && (
+            <div className="actions">
+              {state.signup && (
+                <Link className="btn small" href={`/signup?next=${encodeURIComponent(next)}`}>
+                  {labels.signup}
+                </Link>
+              )}
+              {state.upgrade && (
+                <Link className="btn small" href="/pricing">
+                  {labels.upgrade}
+                </Link>
+              )}
+              {state.changeDomain && (
+                <Link className="btn small secondary" href="/dashboard#domains">
+                  {labels.changeDomain}
+                </Link>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

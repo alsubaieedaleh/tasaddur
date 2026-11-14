@@ -28,7 +28,7 @@ function site(port, routes) {
         res.writeHead(404, { "content-type": "text/html" });
         return res.end("<html><body>not found</body></html>");
       }
-      res.writeHead(200, { "content-type": r.type || "text/html; charset=utf-8" });
+      res.writeHead(r.status || 200, { "content-type": r.type || "text/html; charset=utf-8", ...(r.headers || {}) });
       res.end(r.body);
     })
     .listen(port, "127.0.0.1");
@@ -49,6 +49,11 @@ site(4012, {
   "/robots.txt": { type: "text/plain", body: "User-agent: *\nDisallow: /\n" },
 });
 
+// Bot-protected site (Cloudflare-style challenge)
+site(4014, {
+  "/": { status: 403, headers: { "cf-mitigated": "challenge" }, body: "<html><head><title>Just a moment...</title></head><body>challenge-platform</body></html>" },
+});
+
 // Fake Moyasar API
 http
   .createServer((req, res) => {
@@ -65,4 +70,4 @@ http
   })
   .listen(4013, "127.0.0.1");
 
-console.log("fixtures up on 4011 (good), 4012 (bad), 4013 (moyasar)");
+console.log("fixtures up on 4011 (good), 4012 (bad), 4013 (moyasar), 4014 (bot-protected)");
