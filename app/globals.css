@@ -228,6 +228,7 @@ details.faq p { margin: 8px 0 0; color: var(--muted); }
 .menu-panel a, .menu-panel .linkbtn { padding: 10px 12px; display: block; text-align: start; width: 100%; }
 
 /* Report additions */
+.report-error { margin: 32px 0 24px; }
 .host-title { direction: ltr; unicode-bidi: plaintext; }
 .score-label { font-weight: 700; font-size: 18px; margin: 0 0 6px; }
 .chip { display: inline-block; background: var(--brand-soft); color: var(--brand); border-radius: 999px; padding: 2px 12px; font-size: 14px; font-weight: 600; margin-bottom: 8px; }

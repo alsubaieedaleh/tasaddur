@@ -105,10 +105,10 @@ export default async function AuditPage({ params }: Params) {
   if (!r || r.error || audit.status === "error") {
     return (
       <div className="container narrow">
-        <div className="report-head">
-          <Ring score={0} of={t.scoreOf} />
+        {/* No score ring here: the site wasn't audited, so a "0 / 100" would read as a bad score. */}
+        <div className="report-error">
+          <h1 dir="ltr" className="host-title">{audit.host}</h1>
           <div>
-            <h1 dir="ltr" className="host-title">{audit.host}</h1>
             <div className="error" role="alert">{errorMessage(t, r?.error ?? audit.error ?? "")}</div>
           </div>
         </div>

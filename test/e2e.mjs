@@ -53,6 +53,7 @@ await submitAudit("127.0.0.1:4014");
 await page.waitForURL(/\/audit\//, { timeout: 60000 });
 await page.waitForSelector(".error", { timeout: 60000 });
 assert.match(await page.textContent(".error"), /Cloudflare/);
+assert.equal(await page.$(".ring"), null, "no 0/100 score shown for a site we couldn't audit");
 step("bot-protected site shows a clear message");
 
 // 4. Anonymous audit of the bad site (async, with running state)
