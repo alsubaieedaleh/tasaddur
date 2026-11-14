@@ -1,0 +1,20 @@
+# One-click deploy: https://render.com/deploy?repo=https://github.com/alsubaieedaleh/tasaddur
+services:
+  - type: web
+    name: tasaddur
+    runtime: docker
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: APP_URL
+        sync: false # set to the URL Render gives you, e.g. https://tasaddur.onrender.com
+      - key: MOYASAR_PUBLISHABLE_KEY
+        sync: false
+      - key: MOYASAR_SECRET_KEY
+        sync: false
+      - key: CRON_SECRET
+        generateValue: true
+      - key: RESEND_API_KEY
+        sync: false
+      - key: DATABASE_PATH
+        value: /data/tasaddur.db
