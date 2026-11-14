@@ -4,14 +4,16 @@ Arabic-first SEO audit SaaS for Saudi businesses. Type a domain, get a 0–100 s
 
 The product decisions (features, SAR pricing, free tier, acquisition) are in the PRD.
 
-## What's in the MVP
+## What's in the app
 
-- **Audit engine** (`lib/audit/`): 26 checks across technical, content, mobile, and Arabic/Saudi groups (lang/dir, Arabic titles, hreflang, LocalBusiness schema with a Saudi address and +966 phone). It crawls the homepage on Free and up to 100/500 internal pages on Pro/Business. Outbound requests are SSRF-guarded (private IPs blocked on every redirect hop) and size/time limited.
-- **Plans** (`lib/plans.ts`): Free 0, Pro 79 SAR/mo (790/yr), Business 199 SAR/mo (1,990/yr), prices VAT-inclusive. Limits on domains, pages per audit, audits per day, and how many fixes are unlocked. Anonymous visitors get 1 audit per day; signing up claims that report.
-- **Payments** (`lib/billing.ts`): Moyasar hosted form (Mada, Visa, Mastercard, Apple Pay, STC Pay). The callback never trusts the query string: it fetches the payment from Moyasar with the secret key, checks status, SAR currency, the exact amount for the plan and period, and the user, and is idempotent per payment id. A payment buys 30 or 365 days; there is no auto-renew yet (that's v1.1).
-- **Monitoring** (`app/api/cron/weekly`): re-audits paid domains weekly, emails when a score drops 5+ points, and sends renewal reminders (Resend, or logs when no key is set).
-- **UI**: Arabic RTL by default with a one-tap English toggle, responsive layout, light/dark themes, share to X/WhatsApp, and a print-to-PDF report (unbranded on Business).
-- **Storage**: SQLite via Node's built-in `node:sqlite`, so there are no native dependencies.
+- **Audit engine** (`lib/audit/`): 36 checks across technical, content, mobile, and Arabic/Saudi groups. It detects Salla, Zid, Shopify and WordPress, gives platform-specific fix steps, and doesn't count settings the store platform controls. Scores are capped when the site can't be indexed (noindex home, robots block, broken home: max 25; no HTTPS: max 60). It crawls the homepage on Free and up to 100/500 pages on Pro/Business, seeding from the sitemap and respecting robots.txt. Outbound requests pin the resolved IP (no DNS rebinding), allow only ports 80/443, and are size and time limited. Bot-protection pages (Cloudflare challenges) are reported clearly and not counted.
+- **Audits run in the background**: the report page shows progress and refreshes itself. At most `MAX_CONCURRENT_AUDITS` run at once.
+- **Plans** (`lib/plans.ts`): Free, Pro 79 SAR/mo (790/yr, or a 29 SAR one-week pass), Business 199 SAR/mo (1,990/yr), VAT-inclusive. Anonymous visitors get 1 audit per browser per day; signing up claims that report. Free accounts can swap their one site once every 7 days.
+- **Payments** (`lib/billing.ts`): Moyasar hosted form. The callback and the webhook both re-fetch the payment from Moyasar with the secret key, check status, SAR currency, the exact amount, and the user, and apply it once per payment id. Unused days of a current plan are credited when upgrading or switching. Receipts show VAT.
+- **Monitoring** (`app/api/cron/weekly`): paid sites are re-audited weekly and free sites monthly, with an email digest (score, change, top issue), plus renewal reminders 7 days and 1 day before expiry and on expiry.
+- **UI**: Arabic RTL by default with an English toggle, mobile menu, light/dark themes, WhatsApp/X sharing, "what changed" since the last audit, print-to-PDF (agency name on Business).
+- **Security**: async scrypt passwords, login/signup rate limits, session rotation, open-redirect-safe `next` handling, client IP from `X-Forwarded-For` limited to `TRUSTED_PROXY_HOPS`.
+- **Storage**: SQLite via Node's built-in `node:sqlite` with versioned migrations.
 
 ## Run it
 
@@ -33,11 +35,12 @@ curl -H "Authorization: Bearer $CRON_SECRET" https://your-domain/api/cron/weekly
 
 1. Create an account at dashboard.moyasar.com and copy the test keys into `.env.local`.
 2. Set `APP_URL` to your public URL. The callback is `APP_URL/api/payments/callback`.
-3. For Apple Pay, verify your domain in the Moyasar dashboard.
+3. Add a webhook to `APP_URL/api/payments/webhook` for paid payments, and put its secret token in `MOYASAR_WEBHOOK_SECRET`. This activates plans even if the customer closes the tab before the redirect.
+4. For Apple Pay, verify your domain in the Moyasar dashboard.
 
 ## Tests
 
-The end-to-end test runs against local fixture sites and a fake Moyasar API. It covers anonymous audit, limits, signup, payment verification (tampered amount, failed payment, replay), a Pro multi-page crawl, the language toggle, cron auth, and the mobile layout.
+The end-to-end test runs against local fixture sites and a fake Moyasar API. It covers our own SEO basics, a bot-protected site, the async anonymous audit, per-browser limits, signup claiming, domain swap and cooldown, payment verification (tampered amount, failed payment, replay, the 29 SAR weekly pass), a Pro multi-page crawl with "what changed", the language toggle, open-redirect protection, cron auth, and the mobile layout.
 
 ```bash
 node test/fixtures.mjs &
@@ -47,9 +50,10 @@ ALLOW_PRIVATE_HOSTS=1 MOYASAR_API_URL=http://127.0.0.1:4013/v1 MOYASAR_SECRET_KE
 BASE=http://localhost:3100 node test/e2e.mjs
 ```
 
-## Known gaps (v1.1 per PRD)
+## Known gaps
 
 - Auto-renewing subscriptions (Moyasar tokenization) and ZATCA e-invoices.
 - Salla and Zid app store listings.
-- Login rate limiting and password reset by email.
-- The DNS check happens before connecting, so a DNS-rebinding attack is still possible. Pin the resolved IP if you deploy somewhere sensitive.
+- Password reset by email.
+- The Salla/Zid dashboard menu paths in the platform-specific fixes should be checked against the current dashboards.
+- On Render's free plan the disk is not persistent: add a disk (paid) or move to Postgres before taking real customers.

@@ -1,23 +1,32 @@
 import crypto from "node:crypto";
+import { promisify } from "node:util";
 import { cookies } from "next/headers";
 import { getDb, type UserRow } from "./db";
 import { PLANS, type Plan, type PlanId } from "./plans";
 
+const scrypt = promisify(crypto.scrypt) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 const SESSION_COOKIE = "tsd_session";
 const SESSION_DAYS = 30;
+const DUMMY_HASH = "scrypt:00000000000000000000000000000000:" + "00".repeat(64);
 
-export function hashPassword(password: string): string {
+export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.randomBytes(16);
-  const hash = crypto.scryptSync(password, salt, 64);
+  const hash = await scrypt(password, salt, 64);
   return ["scrypt", salt.toString("hex"), hash.toString("hex")].join(":");
 }
 
-export function verifyPassword(password: string, stored: string): boolean {
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const [scheme, saltHex, hashHex] = stored.split(":");
   if (scheme !== "scrypt" || !saltHex || !hashHex) return false;
   const expected = Buffer.from(hashHex, "hex");
-  const actual = crypto.scryptSync(password, Buffer.from(saltHex, "hex"), expected.length);
+  const actual = await scrypt(password, Buffer.from(saltHex, "hex"), expected.length);
   return crypto.timingSafeEqual(expected, actual);
+}
+
+/** Spend the same time as a real check, so unknown emails can't be detected by timing. */
+export async function dummyVerify(password: string): Promise<false> {
+  await verifyPassword(password, DUMMY_HASH);
+  return false;
 }
 
 export function normalizeEmail(email: string): string {
@@ -28,11 +37,28 @@ export function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254;
 }
 
+/** Simple sliding-window limiter stored in SQLite. Returns true when the key is over the limit. */
+export function rateLimited(key: string, max: number, windowMs: number, record = true): boolean {
+  const db = getDb();
+  const since = Date.now() - windowMs;
+  const n = (db.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE key = ? AND created_at > ?").get(key, since) as { n: number }).n;
+  if (n >= max) return true;
+  if (record) db.prepare("INSERT INTO login_attempts (key, created_at) VALUES (?, ?)").run(key, Date.now());
+  return false;
+}
+
 export async function createSession(userId: number): Promise<void> {
+  const db = getDb();
+  const jar = await cookies();
+  // Rotate: drop any session token the browser already had, and clean expired sessions.
+  const old = jar.get(SESSION_COOKIE)?.value;
+  if (old) db.prepare("DELETE FROM sessions WHERE token = ?").run(old);
+  db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(Date.now());
+  db.prepare("DELETE FROM login_attempts WHERE created_at < ?").run(Date.now() - 86400_000);
   const token = crypto.randomBytes(32).toString("base64url");
   const expires = Date.now() + SESSION_DAYS * 86400_000;
-  getDb().prepare("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)").run(token, userId, expires);
-  (await cookies()).set(SESSION_COOKIE, token, {
+  db.prepare("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)").run(token, userId, expires);
+  jar.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { applyVerifiedPayment, fetchMoyasarPayment } from "@/lib/billing";
-import { appUrl } from "@/lib/request";
 
 /**
  * Moyasar redirects the customer here after payment with ?id=<payment id>&status=...
@@ -8,8 +7,14 @@ import { appUrl } from "@/lib/request";
  */
 export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id") || "";
-  const payment = await fetchMoyasarPayment(id);
-  const result = payment ? applyVerifiedPayment(payment) : "not_paid";
-  const ok = result === "activated" || result === "already_processed";
-  return NextResponse.redirect(`${appUrl()}/dashboard?paid=${ok ? 1 : 0}`, 303);
+  let ok = false;
+  try {
+    const payment = await fetchMoyasarPayment(id);
+    const result = payment ? applyVerifiedPayment(payment) : "not_paid";
+    ok = result === "activated" || result === "already_processed";
+  } catch (e) {
+    console.error("[payments] callback failed", e);
+  }
+  // Relative redirect: correct behind any proxy.
+  return new NextResponse(null, { status: 303, headers: { Location: `/dashboard?paid=${ok ? 1 : 0}` } });
 }

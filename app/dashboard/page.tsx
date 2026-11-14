@@ -1,111 +1,170 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import AuditForm from "@/components/AuditForm";
+import { removeDomainAction, saveAgencyNameAction } from "@/app/actions";
 import { effectivePlan, getUser } from "@/lib/auth";
-import { auditHistory, auditsSince, userDomains } from "@/lib/audits";
+import { auditHistory, auditsToday, userDomains } from "@/lib/audits";
 import { formatDate, getT } from "@/lib/i18n";
+import { auditLabels } from "@/lib/plan-cards";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { robots: { index: false, follow: false } };
 
-export default async function Dashboard({ searchParams }: { searchParams: Promise<{ paid?: string; rerun?: string }> }) {
+const DAY = 86400_000;
+
+function scoreClass(s: number) {
+  return s >= 85 ? "good" : s >= 50 ? "important" : "critical";
+}
+
+type Search = { paid?: string; rerun?: string; removed?: string; saved?: string };
+
+export default async function Dashboard({ searchParams }: { searchParams: Promise<Search> }) {
   const user = await getUser();
   if (!user) redirect("/login?next=/dashboard");
   const { t, lang } = await getT();
-  const { paid, rerun } = await searchParams;
+  const { paid, rerun, removed, saved } = await searchParams;
   const plan = effectivePlan(user);
-  const domains = userDomains(user.id).map((d) => ({ ...d, history: auditHistory(user.id, d.host) }));
-  const usedToday = auditsSince({ userId: user.id }, Date.now() - 86400_000);
-  const expired = user.plan !== "free" && plan.id === "free";
+  const isPaid = plan.id !== "free";
+  const domains = userDomains(user.id).map((d, i) => ({ ...d, active: i < plan.domains, history: auditHistory(user.id, d.host) }));
+  const usedToday = auditsToday({ user, anonId: null });
+  const expired = user.plan !== "free" && !isPaid;
+  const expiresSoon = isPaid && !!user.plan_expires_at && user.plan_expires_at - Date.now() < 7 * DAY;
+  const period = user.plan_period === "yearly" ? "yearly" : "monthly";
+  const firstHost = domains[0]?.host;
 
   return (
     <div className="container">
-      {paid === "1" && <div className="notice">{t.paidSuccess}</div>}
-      {paid === "0" && <div className="error">{t.paidFailed}</div>}
+      {paid === "1" && isPaid && (
+        <div className="notice onboarding">
+          <p>
+            <strong>{t.paidSuccess(t.planNames[plan.id], user.plan_expires_at ? formatDate(user.plan_expires_at, lang) : "")}</strong>
+          </p>
+          <p>{t.paidNext}</p>
+          {firstHost && (
+            <Link className="btn" href={`/dashboard?rerun=${encodeURIComponent(firstHost)}#audit`}>
+              {t.fullAuditCta(firstHost)}
+            </Link>
+          )}
+        </div>
+      )}
+      {paid === "0" && <div className="error" role="alert">{t.paidFailed}</div>}
+      {removed === "removed" && <div className="notice">{t.removedOk}</div>}
+      {removed === "cooldown" && <div className="error" role="alert">{t.removedCooldown}</div>}
+      {saved === "1" && <div className="notice">{t.saved}</div>}
+
       <div className="dash-top">
         <div>
-          <h1 style={{ marginBottom: 4 }}>{t.dashboard}</h1>
+          <h1 className="mb-4">{t.dashboard}</h1>
           <div className="meta">
             <span>
               {t.planLabel}: <strong>{t.planNames[plan.id]}</strong>
             </span>
-            {plan.id !== "free" && user.plan_expires_at && (
+            {isPaid && user.plan_expires_at && (
               <span>
                 {t.expires}: {formatDate(user.plan_expires_at, lang)}
               </span>
             )}
             <span>{t.usageToday(usedToday, plan.auditsPerDay)}</span>
-            <span>{t.domainsUsage(domains.length, plan.domains)}</span>
+            <span>{t.domainsUsage(Math.min(domains.length, plan.domains), plan.domains)}</span>
             <span dir="ltr">{user.email}</span>
           </div>
+          {!isPaid && <p className="hint">{t.freeSummary}</p>}
         </div>
-        {plan.id === "free" ? (
-          <Link className="btn" href="/pricing">
-            {expired ? t.renew : t.upgrade}
-          </Link>
-        ) : (
-          <Link className="btn secondary" href={`/checkout?plan=${plan.id}&period=monthly`}>
-            {t.renew}
-          </Link>
-        )}
+        <div className="actions">
+          {!isPaid && (
+            <Link className="btn" href={expired ? `/checkout?plan=${user.plan}&period=${period}` : "/pricing"}>
+              {expired ? t.renew : t.upgrade}
+            </Link>
+          )}
+          {expiresSoon && (
+            <Link className="btn" href={`/checkout?plan=${plan.id}&period=${period}`}>
+              {t.renew}
+            </Link>
+          )}
+          {plan.id === "pro" && (
+            <Link className="btn secondary" href="/checkout?plan=business&period=monthly">
+              {t.upgradeBusiness}
+            </Link>
+          )}
+        </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 24 }}>
-        <h3>{t.addDomain}</h3>
-        <AuditForm
-          placeholder={t.domainPlaceholder}
-          cta={t.auditCta}
-          pending={t.auditing}
-          signupLabel={t.signup}
-          upgradeLabel={t.upgrade}
-          defaultValue={rerun}
-          key={rerun || "new"}
-        />
+      <div className="card mb-24" id="audit">
+        <h2 className="h3">{t.addDomain}</h2>
+        <AuditForm labels={auditLabels(t, isPaid)} defaultValue={rerun} key={rerun || "new"} />
       </div>
 
-      <h2>{t.myDomains}</h2>
+      <h2 id="domains">{t.myDomains}</h2>
       {domains.length === 0 ? (
         <p className="hint">{t.noDomains}</p>
       ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>{t.myDomains}</th>
-              <th>{t.lastScore}</th>
-              <th className="hide-sm">{t.history}</th>
-              <th className="hide-sm">{t.auditedAt}</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {domains.map((d) => {
-              const last = d.history[0];
-              return (
-                <tr key={d.id}>
-                  <td className="host">{d.host}</td>
-                  <td>{last ? <span className="score-pill">{last.score}</span> : "—"}</td>
-                  <td className="hide-sm">
-                    <span className="spark" aria-label={d.history.map((h) => h.score).reverse().join(", ")}>
+        <ul className="domain-list">
+          {domains.map((d) => {
+            const last = d.history[0];
+            const before = d.history[1];
+            const delta = last && before ? last.score - before.score : null;
+            return (
+              <li key={d.id} className={`card domain${d.active ? "" : " inactive"}`}>
+                <div className="domain-main">
+                  <span className="host" dir="ltr">{d.host}</span>
+                  {last ? (
+                    <span className={`score-pill ${scoreClass(last.score)}`} aria-label={`${t.lastScore}: ${last.score}`}>
+                      {last.score}
+                    </span>
+                  ) : (
+                    <span className="score-pill">—</span>
+                  )}
+                  {delta !== null && delta !== 0 && (
+                    <span className={delta > 0 ? "delta good" : "delta bad"} dir="ltr">
+                      {delta > 0 ? `+${delta}` : delta}
+                    </span>
+                  )}
+                  {d.history.length > 1 && (
+                    <span className="spark" role="img" aria-label={`${t.history}: ${[...d.history].reverse().map((h) => h.score).join(", ")}`}>
                       {[...d.history].reverse().map((h) => (
                         <i key={h.id} style={{ height: `${Math.max(8, h.score)}%` }} />
                       ))}
                     </span>
-                  </td>
-                  <td className="hide-sm">{last ? formatDate(last.created_at, lang) : "—"}</td>
-                  <td>
-                    {last && (
-                      <Link className="btn small secondary" href={`/audit/${last.id}`}>
-                        {t.viewReport}
-                      </Link>
-                    )}{" "}
-                    <Link className="btn small secondary" href={`/dashboard?rerun=${encodeURIComponent(d.host)}`}>
+                  )}
+                </div>
+                <div className="domain-meta">{last ? `${t.auditedAt}: ${formatDate(last.created_at, lang)}` : ""}</div>
+                <div className="actions">
+                  {last && (
+                    <Link className="btn small secondary" href={`/audit/${last.id}`}>
+                      {t.viewReport}
+                    </Link>
+                  )}
+                  {d.active && (
+                    <Link className="btn small secondary" href={`/dashboard?rerun=${encodeURIComponent(d.host)}#audit`}>
                       {t.rerun}
                     </Link>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  )}
+                  <form action={removeDomainAction}>
+                    <input type="hidden" name="id" value={d.id} />
+                    <button type="submit" className="linkbtn danger" title={t.removeConfirm}>
+                      {t.remove}
+                    </button>
+                  </form>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {domains.length > 0 && <p className="hint">{t.removeConfirm}</p>}
+
+      {plan.whiteLabel && (
+        <div className="card mt-32">
+          <h2 className="h3">{t.agencyTitle}</h2>
+          <p className="hint">{t.agencyHint}</p>
+          <form action={saveAgencyNameAction} className="inline-form">
+            <input name="agency" maxLength={80} defaultValue={user.agency_name ?? ""} aria-label={t.agencyTitle} />
+            <button className="btn" type="submit">
+              {t.save}
+            </button>
+          </form>
+        </div>
       )}
     </div>
   );
