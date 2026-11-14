@@ -663,7 +663,7 @@ export const CHECKS: CheckDef[] = [
       why: "Links shared on WhatsApp, X or Snapchat show without an image or proper title. WhatsApp ignores relative image URLs.",
       fix: "Add og:title, og:description and og:image with a full https image URL.",
     },
-    snippet: ({ origin }) => `<meta property="og:title" content="متجر ريحان للعطور" />\n<meta property="og:description" content="عطور عود أصلية مع توصيل سريع" />\n<meta property="og:image" content="${origin}/og-image.jpg" />\n<meta property="og:locale" content="ar_SA" />`,
+    snippet: ({ origin }) => `<meta property="og:title" content="اسم نشاطك: ما تقدمه في جملة" />\n<meta property="og:description" content="وصف قصير يشجع على النقر" />\n<meta property="og:image" content="${origin}/og-image.jpg" />\n<meta property="og:locale" content="ar_SA" />`,
   },
   {
     id: "structured_data",
@@ -838,7 +838,7 @@ export const CHECKS: CheckDef[] = [
 {
   "@context": "https://schema.org",
   "@type": "LocalBusiness",
-  "name": "متجر ريحان",
+  "name": "اسم نشاطك",
   "url": "${origin}/",
   "telephone": "+966500000000",
   "address": {
